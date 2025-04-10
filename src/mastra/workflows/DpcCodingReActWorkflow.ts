@@ -30,7 +30,7 @@ const toolSelectAndExecuteStep = new Step({
     result: z.any(),
   }),
   execute: async ({ context }) => {
-    console.log("+++++++++++++ToolSelectAndExecuteStep+++++++++++++", loopCount);
+    logger.info("+++++++++++++ToolSelectAndExecuteStep+++++++++++++", loopCount as any);
     const runId = context.getStepResult("trigger")?.runId || `run-${Date.now()}`;
     const filePath = resolveFromRoot("documents", "DPCPDPS傷病名コーディングテキスト.pdf");
     console.log("filePath",filePath)
@@ -71,7 +71,7 @@ const toolSelectAndExecuteStep = new Step({
     ]`
 
     if (loopCount === 0) {
-      console.log("planningDpdCoding")
+      logger.info("Planning Step")
       const result = await visionAgentTool.execute!({
         context: {
           imagePath: filePath,
@@ -84,7 +84,7 @@ const toolSelectAndExecuteStep = new Step({
       const match = result.answer.match(/```json([\s\S]*?)```/);
       if (!match) throw new Error("🛑 visionAgentToolの出力からJSONが見つかりません");
       const steps = JSON.parse(match[1].trim());
-      console.log("👣steps:\n", steps);
+      logger.info("📋 planning result:\n", steps);
 
       // TODO：毎回PDFを読み込んでPlanningすると0.1$程度お金がかかること、毎回の出力結果が大差ないことから、初回のLLMに作成させて随時更新でも良さそう
       // const steps = [
@@ -121,13 +121,14 @@ const toolSelectAndExecuteStep = new Step({
     const state = planningStateMap.get(runId);
     const step = steps[state.currentStepIndex];
 
-    console.log("step", step);
+    logger.info("step", step);
     console.log("state", state);
 
     let result: any;
     try {
       switch (step.toolName) {
         case "file-loader": {
+          logger.info("📁file-loader step");
           const projectRoot = process.env.PROJECT_ROOT
             ? path.resolve(process.cwd(), process.env.PROJECT_ROOT)
             : process.cwd();
@@ -146,14 +147,16 @@ const toolSelectAndExecuteStep = new Step({
             `;
           console.log("fileSelectPrompt", fileSelectPrompt);
           const fileSelectResult = await LLMAgent.generate(fileSelectPrompt);
+          logger.info("file-select result", fileSelectResult.text as any);
           console.log("file-select result", fileSelectResult.text);
           const selectedFileName = JSON.parse(fileSelectResult.text.replace(/```json|```/g, "").trim()).selectedFile;
           const selectedFilePath = path.join("data", selectedFileName);
           result = await fileLoaderTool.execute!({ context: { fileName: selectedFilePath } });
-          console.log("file-loader result", result);
+          logger.info("📁file-loader End", result);
           break;
         }
         case "vector-search": {
+          logger.info("🔍vector-search step");
           const previousKarte = collectedResults[runId]
             ?.filter(r => r.toolName === "file-loader")
             ?.map(r => typeof r.result === "string" ? r.result : JSON.stringify(r.result))
@@ -168,7 +171,7 @@ const toolSelectAndExecuteStep = new Step({
           .map(q => q.trim())
           .filter(Boolean);
 
-          console.log("Extracted queries:", queries);
+          logger.info("Extracted queries:", queries);
       
           // キーワードごとに個別検索
           const searchResults: string[] = [];
@@ -183,20 +186,22 @@ const toolSelectAndExecuteStep = new Step({
           }
         
           result = searchResults;
-          console.log("vector-search result", result);
+          logger.info("🔍vector-search End", result);
           break;
         }
         case "think": {
+          logger.info("🧠 think");
           const relevantChunks = collectedResults[runId]
             ?.map(r => typeof r.result === "string" ? r.result : JSON.stringify(r.result))
             .join("\n\n");
           
           const prompt = `以下の関連情報を基に、副傷病名を精査し、最終的なリストを作成してください。\n\n${relevantChunks}`;
           result = await ReasoningAgent.generate(prompt);
-          console.log("think result", result);
+          logger.info("think result", result);
           break;
         }
         case "create-table": {
+          logger.info("📋 create-table 実行開始");
           const relevantChunks = collectedResults[runId]
             ?.map(r => typeof r.result === "string" ? r.result : JSON.stringify(r.result))
             .join("\n\n");
@@ -219,7 +224,7 @@ const toolSelectAndExecuteStep = new Step({
           出力はCSV形式（カンマ区切り、ヘッダー付き）でお願いします。
           `; 
           result = await LLMAgent.generate(prompt);
-          console.log("create-table result", result);
+          logger.info("📋 create-table result", result);
           break;
         }
         default:
@@ -262,6 +267,7 @@ const reasoningStep = new Step({
     nextTool: z.string().optional(),
   }),
   execute: async ({ context }) => {
+    logger.info("🧠 Reasoning Step")
     const toolResults = context.inputData.toolResults;
     const runId = context.getStepResult("trigger")?.runId || "default";
     const relevantChunks = collectedResults[runId]
@@ -301,7 +307,7 @@ const reasoningStep = new Step({
     `;    
 
     const result = await ReasoningAgent.generate(prompt);
-    console.log(result.text.replace(/```json|```/g, "").trim());
+    logger.info(result.text.replace(/```json|```/g, "").trim());
     return JSON.parse(result.text.replace(/```json|```/g, "").trim());
   },
 });

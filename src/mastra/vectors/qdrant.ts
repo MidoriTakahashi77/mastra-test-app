@@ -10,7 +10,7 @@ import 'dotenv/config';
 // 
 // ※ 実行時は問題ないが、型安全ではないので注意。
 export const qdrantVector = new QdrantVector(
-  "https://a1192bf2-141e-43a1-8f0f-efb388a217ef.us-east4-0.gcp.cloud.qdrant.io",
+  process.env.QDRANT_URL as string,
   process.env.QDRANT_API_KEY,
   true
 )as unknown as MastraVector;
